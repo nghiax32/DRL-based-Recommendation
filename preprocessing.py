@@ -15,32 +15,6 @@ RESTAURANTS_PATH = 'dataset/processed_rest.csv'
 REVIEWS_PATH = 'dataset/reviews.csv'
 USERS_PATH = 'dataset/processed_users.csv'
 
-
-# https://www.kaggle.com/zolboo/recommender-systems-knn-svd-nn-keras
-# Function that extract keys from the nested dictionary
-def extract_keys(attr, key):
-    if attr == None:
-        return "{}"
-    if key in attr:
-        return attr.pop(key)
-
-
-# convert string to dictionary
-def str_to_dict(attr):
-    if attr != None:
-        return ast.literal_eval(attr)
-    else:
-        return ast.literal_eval("{}")
-
-
-def sub_timestamp(element):
-    element = element[0]
-    a, b = element.split('-')
-    a = datetime.strptime(a, "%H:%M")
-    b = datetime.strptime(b, "%H:%M")
-    return timedelta.total_seconds(b - a)
-
-
 def get_device():
     if torch.cuda.is_available():
         device = torch.device('cuda:0')
@@ -48,28 +22,9 @@ def get_device():
         device = torch.device('cpu')
     return device
 
-
 def df_to_tensor(df):
     device = get_device()
-    # df = df.select_dtypes(include =[np.number])
     return torch.from_numpy(df.values).long().to(device)
-
-def df_to_tensor_cpu(df):
-    # df = df.select_dtypes(include =[np.number])
-    return torch.from_numpy(df.values).long()
-
-def process_data_chunk(reviews, users, restaurants):
-    reviews = pd.merge(reviews, users, how='inner', on='user_id')
-    reviews = reviews.drop(columns='user_id')
-    reviews = pd.merge(reviews, restaurants, how='inner', on='business_id')
-    reviews = reviews.drop(columns='business_id')
-    print("REVIEWS.HEAD() -------------------------------------------------------------------")
-    print(reviews.head())
-    reviews = reviews.drop(columns=reviews.columns[0], axis=1)
-    print("REVIEWS.DROP() -------------------------------------------------------------------")
-    print(reviews.head())
-    return df_to_tensor(reviews)
-
 
 # Load data files
 # reviews = get_reviews()
@@ -81,6 +36,7 @@ def load_data(train_percent, val_percent, test_percent):
     users['user_id_num'] = users['user_id'].cat.codes
     users = users[['user_id', 'user_id_num', 'review_count']]
     user_id_to_num = dict(zip(users['user_id'], users['user_id_num']))
+    print(users)
 
     print("Reading businesses")
     restaurants = pd.read_csv(RESTAURANTS_PATH)
@@ -88,6 +44,7 @@ def load_data(train_percent, val_percent, test_percent):
     restaurants['business_id_num'] = restaurants['business_id'].cat.codes
     restaurants = restaurants[['business_id', 'business_id_num']]
     rest_id_to_num = dict(zip(restaurants['business_id'], restaurants['business_id_num']))
+    print(restaurants)
 
     print("Reading reviews")
     reviews = pd.read_csv(REVIEWS_PATH)
@@ -103,6 +60,7 @@ def load_data(train_percent, val_percent, test_percent):
     print(reviews.head())
     reviews = reviews.select_dtypes(include =[np.number])
     print("reviews.select_dtypes() -------------------------------------------------------------------")
+    
     print(reviews.head())
 
     pickle.dump(user_id_to_num, open('./dataset/user_id_to_num.pkl', 'wb'))
@@ -118,7 +76,7 @@ def load_data(train_percent, val_percent, test_percent):
 
     print("loaded")
 
-    return df_to_tensor_cpu(training), df_to_tensor_cpu(validation), df_to_tensor_cpu(test), user_id_to_num, rest_id_to_num
+    return df_to_tensor(training), df_to_tensor(validation), df_to_tensor(test), user_id_to_num, rest_id_to_num
 
 
 if __name__ == "__main__":
