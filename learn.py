@@ -128,7 +128,7 @@ class DRRTrainer(object):
         self.target_critic_net.load_state_dict(self.critic_net.state_dict())
 
     def learn(self):
-        print("Debug: start learning")
+        print("Debug: start learning1")
         # Transfer training data to device
         self.train_data = self.train_data.to(self.device)
 
