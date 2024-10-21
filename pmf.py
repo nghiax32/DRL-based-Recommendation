@@ -14,19 +14,23 @@ from evaluations import RMSE
 print('------------------------ Train PMF ---------------------------')
 # --------------------------------------------- HYPERPARAMETERS ----------------------------------------------------
 # Input batch size for training
-batch_size = 200000
+batch_size = 100000
 # Number of maximum epoches to train
 epoches = 150
 # Enables CUDA training
-no_cuda = False
+enable_cuda = False
 # Generate random seed
 seed = 1
 # Weight decay
 weight_decay = 0.1
 # Size of embedding features
-embedding_feature_size = 20
-# Training ratio
-ratio = 0.8
+embedding_feature_size = 100
+# Train ratio
+train_ratio = 0.8
+# Val ratio
+val_ratio = 0.1
+# Test ratio
+test_ratio = 0.1
 # Learning rate
 lr = 0.0001
 # Momentum value
@@ -42,26 +46,26 @@ data = np.load('dataset/data.npy', allow_pickle=True)
 print("Loaded data")
 
 # Normalize rewards to [-1, 1]
-data[:,1] = 0.5*(data[:,1] - 3)
+data[:,0] = 0.5*(data[:,0] - 3)
 
 # Shuffle data
 np.random.shuffle(data)
 
 # Split data
-train_data = data[:int(ratio*data.shape[0])]
+train_data = data[:int(train_ratio*data.shape[0])]
 print(f"DEBUG: train data size: {train_data.shape}")
-vali_data = data[int(ratio*data.shape[0]):int((ratio+(1-ratio)/2)*data.shape[0])]
-test_data = data[int((ratio+(1-ratio)/2)*data.shape[0]):]
+vali_data = data[int(train_ratio*data.shape[0]):int((train_ratio+val_ratio)*data.shape[0])]
+test_data = data[int((train_ratio+val_ratio)*data.shape[0]):]
 
 # Extract number of users and items
 NUM_USERS = len(user)
 NUM_ITEMS = len(rest)
 
 # Get CUDA device if available
-cuda = torch.cuda.is_available()
+cuda = torch.cuda.is_available() and enable_cuda
 
 # Set device to CUDA or CPU, depending on availability and desire
-device = torch.device("cuda" if cuda and no_cuda else "cpu")
+device = torch.device("cuda" if cuda else "cpu")
 
 # Generate and apply seeds
 torch.manual_seed(seed=seed)
@@ -70,14 +74,14 @@ if cuda:
     torch.cuda.manual_seed(seed=seed)
 
 # Specify number of workers for cuda
-kwargs = {'num_workers':2, 'pin_memory':True} if cuda else {}
+kwargs = {'num_workers':4, 'pin_memory':True} if cuda else {}
 
 # Construct Data Loaders
 train_data_loader = torch.utils.data.DataLoader(torch.from_numpy(train_data), batch_size=batch_size, shuffle=False, **kwargs)
 test_data_loader = torch.utils.data.DataLoader(torch.from_numpy(test_data), batch_size=batch_size, shuffle=False, **kwargs)
 
 # Initialize model
-model = PMF(n_users=NUM_USERS, n_items=NUM_ITEMS, n_factors=embedding_feature_size, no_cuda=no_cuda)
+model = PMF(n_users=NUM_USERS, n_items=NUM_ITEMS, n_factors=embedding_feature_size, enable_cuda=enable_cuda)
 # print(f"DEBUG: # Initialize model: n_users = {NUM_USERS}, n_items = {NUM_ITEMS}", )
 
 # Move model to CUDA if CUDA selected
@@ -101,16 +105,13 @@ def train(epoch, train_data_loader):
 
     # Go through batches
     for batch_idx, ele in enumerate(train_data_loader):
-        # print("DEBUG: start batch #{batch_idx}")
         # Zero optimizer gradient
         optimizer.zero_grad()
 
         # Extract user_id_nums: row, item_id_nums: col, ratings: val
-        row = ele[:, 4]
-        col = ele[:, 6]
+        row = ele[:, 5]
+        col = ele[:, 7]
         val = ele[:, 0]
-
-        # print(row.shape, col.shape)
 
         # Set to variables
         row = Variable(row.long())
@@ -134,7 +135,7 @@ def train(epoch, train_data_loader):
 
         # Update epoch loss
         epoch_loss += loss.data
-    # print("DEBUG: done")
+
     epoch_loss /= train_data_loader.dataset.shape[0]
     return epoch_loss
 
@@ -144,7 +145,7 @@ train_loss_list = []
 last_vali_rmse = None
 train_rmse_list = []
 vali_rmse_list = []
-print('parameters are: train ratio:{:f},batch_size:{:d}, epoches:{:d}, weight_decay:{:f}'.format(ratio, batch_size, epoches, weight_decay))
+print('parameters are: train ratio:{:f},batch_size:{:d}, epoches:{:d}, weight_decay:{:f}'.format(train_ratio, batch_size, epoches, weight_decay))
 print(model)
 
 # Go through epochs
@@ -158,11 +159,11 @@ for epoch in range(1, epoches+1):
 
     # Move validation data to CUDA
     if cuda:
-        vali_row = Variable(torch.from_numpy(vali_data[:, 4]).long()).cuda()
-        vali_col = Variable(torch.from_numpy(vali_data[:, 6]).long()).cuda()
+        vali_row = Variable(torch.from_numpy(vali_data[:, 5]).long()).cuda()
+        vali_col = Variable(torch.from_numpy(vali_data[:, 7]).long()).cuda()
     else:
-        vali_row = Variable(torch.from_numpy(vali_data[:, 4]).long())
-        vali_col = Variable(torch.from_numpy(vali_data[:, 6]).long())
+        vali_row = Variable(torch.from_numpy(vali_data[:, 5]).long())
+        vali_col = Variable(torch.from_numpy(vali_data[:, 7]).long())
 
     # Get validation predictions
     vali_preds = model.predict(vali_row, vali_col)
@@ -172,9 +173,9 @@ for epoch in range(1, epoches+1):
 
     # Calculate validation rmse loss
     if cuda:
-        vali_rmse = RMSE(vali_preds.cpu().data.numpy(), vali_data[:, 1])
+        vali_rmse = RMSE(vali_preds.cpu().data.numpy(), vali_data[:, 0])
     else:
-        vali_rmse = RMSE(vali_preds.data.numpy(), vali_data[:, 1])
+        vali_rmse = RMSE(vali_preds.data.numpy(), vali_data[:, 0])
 
     # Add losses to rmse loss lists
     train_rmse_list.append(train_rmse)
@@ -184,29 +185,29 @@ for epoch in range(1, epoches+1):
               format(epoch, train_rmse, vali_rmse))
 
     # # Early stop condition
-    # if last_vali_rmse and last_vali_rmse < vali_rmse:
-    #     break
-    # else:
-    #   last_vali_rmse = vali_rmse
+    if last_vali_rmse and last_vali_rmse < vali_rmse:
+        break
+    else:
+      last_vali_rmse = vali_rmse
 
 print('------------------------------------------- Testing Model------------------------------------------------')
 
 # Move test set to CUDA
 if cuda:
-    test_row = Variable(torch.from_numpy(test_data[:, 4]).long()).cuda()
-    test_col = Variable(torch.from_numpy(test_data[:, 6]).long()).cuda()
+    test_row = Variable(torch.from_numpy(test_data[:, 5]).long()).cuda()
+    test_col = Variable(torch.from_numpy(test_data[:, 7]).long()).cuda()
 else:
-    test_row = Variable(torch.from_numpy(test_data[:, 4]).long())
-    test_col = Variable(torch.from_numpy(test_data[:, 6]).long())
+    test_row = Variable(torch.from_numpy(test_data[:, 5]).long())
+    test_col = Variable(torch.from_numpy(test_data[:, 7]).long())
 
 # Get test predictions
 preds = model.predict(test_row, test_col)
 
 # Get test rmse loss
 if cuda:
-    test_rmse = RMSE(preds.cpu().data.numpy(), test_data[:, 1])
+    test_rmse = RMSE(preds.cpu().data.numpy(), test_data[:, 0])
 else:
-    test_rmse = RMSE(preds.data.numpy(), test_data[:, 1])
+    test_rmse = RMSE(preds.data.numpy(), test_data[:, 0])
 print('Test rmse: {:f}'.format(test_rmse))
 
 # Create plots
@@ -227,5 +228,5 @@ plt.title('RMSE Curve in Training Process')
 plt.show()
 
 # Save model
-path_to_trained_pmf = 'dataset/data_runs/ratio_{:f}_bs_{:d}_e_{:d}_wd_{:f}_lr_{:f}_trained_pmf.pt'.format(ratio, batch_size, len(train_rmse_list), weight_decay, lr)
+path_to_trained_pmf = 'dataset/data_runs/ratio_{:f}_bs_{:d}_e_{:d}_wd_{:f}_lr_{:f}_cuda_{:}_trained_pmf.pt'.format(train_ratio, batch_size, len(train_rmse_list), weight_decay, lr, enable_cuda)
 torch.save(model.state_dict(), path_to_trained_pmf)

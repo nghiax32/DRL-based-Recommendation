@@ -69,12 +69,12 @@ class Critic(nn.Module):
 
 
 class PMF(nn.Module):
-    def __init__(self, n_users, n_items, n_factors=20, is_sparse=False, no_cuda=None):
+    def __init__(self, n_users, n_items, n_factors=20, is_sparse=False, enable_cuda=None):
         super(PMF, self).__init__()
         self.n_users = n_users
         self.n_items = n_items
         self.n_factors = n_factors
-        self.no_cuda = no_cuda
+        self.enable_cuda = enable_cuda
         self.random_state = RandomState(1)
 
         self.user_embeddings = nn.Embedding(n_users, n_factors, sparse=is_sparse)

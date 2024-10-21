@@ -44,10 +44,10 @@ class DRRTrainer(object):
         self.items = items
         self.user_embeddings = user_embeddings.to(self.device)
         self.item_embeddings = item_embeddings
-        self.u = 2
-        self.i = 4
-        self.r = 1
-        self.ti = 0
+        self.u = 5
+        self.i = 7
+        self.r = 0
+        self.ti = 1
 
         # Dimensions
         self.item_features = self.item_embeddings.shape[1]
@@ -128,6 +128,7 @@ class DRRTrainer(object):
         self.target_critic_net.load_state_dict(self.critic_net.state_dict())
 
     def learn(self):
+        print("Debug: start learning")
         # Transfer training data to device
         self.train_data = self.train_data.to(self.device)
 
@@ -171,6 +172,7 @@ class DRRTrainer(object):
 
             # Sort positive user reviews by timestamp
             pos_user_reviews = pos_user_reviews[pos_user_reviews[:, self.ti].sort()[1]]
+            print(pos_user_reviews)
 
             # Extract user embedding tensor
             user_emb = self.user_embeddings[e]

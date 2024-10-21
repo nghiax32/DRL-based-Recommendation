@@ -103,7 +103,7 @@ def main():
     data = np.load('dataset/data.npy')
 
     # Normalize rewards to [-1, 1]
-    data[:, 1] = 0.5 * (data[:, 1] - 3)
+    data[:, 0] = 0.5 * (data[:, 0] - 3)
 
     np.random.shuffle(data)
     train_data = torch.from_numpy(data[:int(config.train_ratio * data.shape[0])])
