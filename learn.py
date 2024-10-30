@@ -28,13 +28,16 @@ class DRRTrainer(object):
         self.reward_function = reward_function
 
         # Initialize device
-        self.device_id = torch.cuda.current_device()
-        print("CUDA Device ID: ", self.device_id)
-        print(torch.cuda.get_device_name(self.device_id))
-        print("CUDA Memory Allocated: ", torch.cuda.memory_allocated(self.device_id))
-        print("CUDA Memory Reserved: ", torch.cuda.memory_reserved(self.device_id) / 1000000000, "GB")
-        torch.cuda.empty_cache()
-        self.device = torch.device('cuda:{}'.format(self.device_id) if cuda else "cpu")
+        if cuda:
+          self.device_id = torch.cuda.current_device()
+          print("CUDA Device ID: ", self.device_id)
+          print(torch.cuda.get_device_name(self.device_id))
+          print("CUDA Memory Allocated: ", torch.cuda.memory_allocated(self.device_id))
+          print("CUDA Memory Reserved: ", torch.cuda.memory_reserved(self.device_id) / 1000000000, "GB")
+          torch.cuda.empty_cache()
+          self.device = torch.device('cuda:{}'.format(self.device_id))
+        else:
+          self.device = "cpu"
         print("Current PyTorch Device: ", self.device)
 
         # Import Data
@@ -128,7 +131,7 @@ class DRRTrainer(object):
         self.target_critic_net.load_state_dict(self.critic_net.state_dict())
 
     def learn(self):
-        print("Debug: start learning1")
+        print("Debug: start learning2")
         # Transfer training data to device
         self.train_data = self.train_data.to(self.device)
 
@@ -162,7 +165,8 @@ class DRRTrainer(object):
             # Extract positive user reviews from training
             user_reviews = self.train_data[self.train_data[:, self.u] == e]
             pos_user_reviews = user_reviews[user_reviews[:, self.r] > 0]
-
+            # print("DEBUG: user_reviews", user_reviews)
+            
             # Move on to next user if not enough positive reviews
             if pos_user_reviews.shape[0] < self.config.history_buffer_size:
                 continue
@@ -172,7 +176,7 @@ class DRRTrainer(object):
 
             # Sort positive user reviews by timestamp
             pos_user_reviews = pos_user_reviews[pos_user_reviews[:, self.ti].sort()[1]]
-            print(pos_user_reviews)
+            # print("DEBUG: sorted pos_user_reviews", pos_user_reviews)
 
             # Extract user embedding tensor
             user_emb = self.user_embeddings[e]
@@ -670,7 +674,7 @@ class DRRTrainer(object):
 
             # Copy item embeddings to candidate item embeddings set
             candidate_items = self.item_embeddings.detach().clone().to(self.device)
-            user_candidate_items = self.item_embeddings[user_reviews[:, self.i]].detach().clone().to(self.device)
+            user_candidate_items = self.item_embeddings[user_reviews[:, self.i].cpu()].detach().clone().to(self.device)
 
             # Extract user embedding tensor
             user_emb = self.user_embeddings[e]
@@ -819,7 +823,7 @@ class DRRTrainer(object):
 
             # Copy item embeddings to candidate item embeddings set
             candidate_items = self.item_embeddings.detach().clone().to(self.device)
-            user_candidate_items = self.item_embeddings[user_reviews[:, self.i]].detach().clone().to(self.device)
+            user_candidate_items = self.item_embeddings[user_reviews[:, self.i].cpu()].detach().clone().to(self.device)
 
             # Extract user embedding tensor
             user_emb = self.user_embeddings[e]
