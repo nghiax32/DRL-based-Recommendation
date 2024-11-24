@@ -1,3 +1,5 @@
 /dataset/
 /results/
 /trained/
+/__pycache__/
+/utils/__pycache__/
