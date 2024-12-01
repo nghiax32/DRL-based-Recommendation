@@ -47,8 +47,8 @@ class DRRTrainer(object):
         self.items = items
         self.user_embeddings = user_embeddings.to(self.device)
         self.item_embeddings = item_embeddings
-        self.u = 5
-        self.i = 7
+        self.u = 2
+        self.i = 3
         self.r = 0
         self.ti = 1
 
@@ -131,7 +131,6 @@ class DRRTrainer(object):
         self.target_critic_net.load_state_dict(self.critic_net.state_dict())
 
     def learn(self):
-        print("Debug: start learning2")
         # Transfer training data to device
         self.train_data = self.train_data.to(self.device)
 
@@ -165,7 +164,6 @@ class DRRTrainer(object):
             # Extract positive user reviews from training
             user_reviews = self.train_data[self.train_data[:, self.u] == e]
             pos_user_reviews = user_reviews[user_reviews[:, self.r] > 0]
-            # print("DEBUG: user_reviews", user_reviews)
             
             # Move on to next user if not enough positive reviews
             if pos_user_reviews.shape[0] < self.config.history_buffer_size:
@@ -176,7 +174,6 @@ class DRRTrainer(object):
 
             # Sort positive user reviews by timestamp
             pos_user_reviews = pos_user_reviews[pos_user_reviews[:, self.ti].sort()[1]]
-            # print("DEBUG: sorted pos_user_reviews", pos_user_reviews)
 
             # Extract user embedding tensor
             user_emb = self.user_embeddings[e]
@@ -609,14 +606,14 @@ class DRRTrainer(object):
 
         print('Online Evaluation Finished')
         print(f'Average Reward {np.mean(rewards):.4f} | ')
-        x = np.arange(len(actor_losses))
-        plt.plot(x, actor_losses, label="Test Actor")
-        plt.plot(x, critic_losses, label="Test Critic")
-        plt.legend()
-        plt.xlabel('Timestep (t)')
-        plt.ylabel('Loss')
-        plt.title('Actor and Critic Losses (Evaluation)')
-        plt.minorticks_on()
+        # x = np.arange(len(actor_losses))
+        # plt.plot(x, actor_losses, label="Test Actor")
+        # plt.plot(x, critic_losses, label="Test Critic")
+        # plt.legend()
+        # plt.xlabel('Timestep (t)')
+        # plt.ylabel('Loss')
+        # plt.title('Actor and Critic Losses (Evaluation)')
+        # plt.minorticks_on()
 
         # Reload model parameters
         self.load_parameters()
@@ -646,7 +643,7 @@ class DRRTrainer(object):
         # Init trackers
         timesteps = epoch = 0
         rewards = []
-        epi_precisions = []
+        epi_ndcgs = []
         e_arr = []
 
         # Get users, shuffle, andgo through array
@@ -748,36 +745,42 @@ class DRRTrainer(object):
             # rel_real = user_reviews[T_indicies]
             # rel_real = rel_real[rel_real[:, self.r] > 0]
             rec_items = torch.stack(ignored_items)
-            rel_pred = rec_items[rec_items[:, self.r] > 0]
-            precision_T = len(rel_pred) / len(rec_items)
+            # rel_pred = rec_items[rec_items[:, self.r] > 0]
+            # precision_T = len(rel_pred) / len(rec_items)
+            indices = torch.where(rec_items[:, self.r] > 0)[0].tolist()
+            ndcg_values = []
+            for k in indices:
+                ndcg = np.log2(2) / np.log2(k + 2)
+                ndcg_values.append(ndcg)
+            mean_ndcg = sum(ndcg_values) / len(ndcg_values) if ndcg_values else 0
 
             # Logging
             epoch += 1
             e_arr.append(epoch)
-            epi_precisions.append(precision_T)
+            epi_ndcgs.append(mean_ndcg)
 
             if timesteps % self.config.log_freq == 0:
                 if len(rewards) > 0:
                     print(f'Episode {epoch} | '
-                          f'Precision@{T} {precision_T} | '
-                          f'Avg Precision@{T} {np.mean(epi_precisions):.4f} | '
+                          f'NDCG@{T} {mean_ndcg} | '
+                          f'Avg NDCG@{T} {np.mean(epi_ndcgs):.4f} | '
                           )
                     sys.stdout.flush()
 
         print('Offline Evaluation Finished')
-        print(f'Average Precision@{T}: {np.mean(epi_precisions):.4f} | ')
-        plt.plot(e_arr, epi_precisions, label=f'Precision@{T}')
-        # plt.plot(x, critic_losses, label="Test Critic")
-        plt.legend()
-        plt.xlabel('Episode (t)')
-        plt.ylabel('Precesion@T')
-        plt.title('Precision@T (Offline Evaluation)')
-        plt.minorticks_on()
+        print(f'Average NDCG@{T}: {np.mean(epi_ndcgs):.4f} | ')
+        # plt.plot(e_arr, epi_ndcgs, label=f'NDCG@{T}')
+        # # plt.plot(x, critic_losses, label="Test Critic")
+        # plt.legend()
+        # plt.xlabel('Episode (t)')
+        # plt.ylabel('Precesion@T')
+        # plt.title('NDCG@T (Offline Evaluation)')
+        # plt.minorticks_on()
 
         # Reload model parameters
         self.load_parameters()
 
-        return np.mean(epi_precisions)
+        return np.mean(epi_ndcgs)
 
     def offline_pmf_evaluate(self, T):
         # Load model parameters
@@ -792,7 +795,7 @@ class DRRTrainer(object):
         # Init trackers
         timesteps = epoch = 0
         rewards = []
-        epi_precisions = []
+        epi_ndcgs = []
         e_arr = []
 
         # Get users, shuffle, andgo through array
@@ -897,33 +900,39 @@ class DRRTrainer(object):
             # rel_real = user_reviews[T_indicies]
             # rel_real = rel_real[rel_real[:, self.r] > 0]
             rec_items = torch.stack(ignored_items)
-            rel_pred = rec_items[rec_items[:, self.r] > 0]
-            precision_T = len(rel_pred) / len(rec_items)
-
+            # rel_pred = rec_items[rec_items[:, self.r] > 0]
+            # precision_T = len(rel_pred) / len(rec_items)
+            indices = torch.where(rec_items[:, self.r] > 0)[0].tolist()
+            ndcg_values = []
+            for k in indices:
+                ndcg = np.log2(2) / np.log2(k + 2)
+                ndcg_values.append(ndcg)
+            mean_ndcg = sum(ndcg_values) / len(ndcg_values) if ndcg_values else 0
+            
             # Logging
             epoch += 1
             e_arr.append(epoch)
-            epi_precisions.append(precision_T)
+            epi_ndcgs.append(mean_ndcg)
 
             if timesteps % self.config.log_freq == 0:
                 if len(rewards) > 0:
                     print(f'Episode {epoch} | '
-                          f'Precision@{T} {precision_T} | '
-                          f'Avg Precision@{T} {np.mean(epi_precisions):.4f} | '
+                          f'NDCG@{T} {mean_ndcg} | '
+                          f'Avg NDCG@{T} {np.mean(epi_ndcgs):.4f} | '
                           )
                     sys.stdout.flush()
 
         print('Offline Evaluation Finished')
-        print(f'Average Precision@{T}: {np.mean(epi_precisions):.4f} | ')
-        plt.plot(e_arr, epi_precisions, label=f'Precision@{T}')
-        # plt.plot(x, critic_losses, label="Test Critic")
-        plt.legend()
-        plt.xlabel('Episode (t)')
-        plt.ylabel('Precesion@T')
-        plt.title('Precision@T (Offline Evaluation)')
-        plt.minorticks_on()
+        print(f'Average NDCG@{T}: {np.mean(epi_ndcgs):.4f} | ')
+        # plt.plot(e_arr, epi_ndcgs, label=f'NDCG@{T}')
+        # # plt.plot(x, critic_losses, label="Test Critic")
+        # plt.legend()
+        # plt.xlabel('Episode (t)')
+        # plt.ylabel('Precesion@T')
+        # plt.title('NDCG@T (Offline Evaluation)')
+        # plt.minorticks_on()
 
         # Reload model parameters
         self.load_parameters()
 
-        return np.mean(epi_precisions)
+        return np.mean(epi_ndcgs)
