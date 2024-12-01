@@ -448,8 +448,6 @@ class DRRTrainer(object):
         loss = loss.mean()
 
         return loss, new_priorities
-
-    def online_evaluate(self):
         # Load model parameters
         self.load_parameters()
 
@@ -747,22 +745,21 @@ class DRRTrainer(object):
             rec_items = torch.stack(ignored_items)
             # rel_pred = rec_items[rec_items[:, self.r] > 0]
             # precision_T = len(rel_pred) / len(rec_items)
-            indices = torch.where(rec_items[:, self.r] > 0)[0].tolist()
-            ndcg_values = []
-            for k in indices:
-                ndcg = np.log2(2) / np.log2(k + 2)
-                ndcg_values.append(ndcg)
-            mean_ndcg = sum(ndcg_values) / len(ndcg_values) if ndcg_values else 0
+            dcg = idcg = 0
+            for index, item in enumerate(rec_items):
+                dcg = dcg + (item[self.r] > 0) / np.log2(index + 2)
+                idcg = idcg + np.log2(2) / np.log2(index + 2)
+            ndcg_T = dcg / idcg
 
             # Logging
             epoch += 1
             e_arr.append(epoch)
-            epi_ndcgs.append(mean_ndcg)
+            epi_ndcgs.append(ndcg_T)
 
             if timesteps % self.config.log_freq == 0:
                 if len(rewards) > 0:
                     print(f'Episode {epoch} | '
-                          f'NDCG@{T} {mean_ndcg} | '
+                          f'NDCG@{T} {ndcg_T} | '
                           f'Avg NDCG@{T} {np.mean(epi_ndcgs):.4f} | '
                           )
                     sys.stdout.flush()
@@ -902,22 +899,21 @@ class DRRTrainer(object):
             rec_items = torch.stack(ignored_items)
             # rel_pred = rec_items[rec_items[:, self.r] > 0]
             # precision_T = len(rel_pred) / len(rec_items)
-            indices = torch.where(rec_items[:, self.r] > 0)[0].tolist()
-            ndcg_values = []
-            for k in indices:
-                ndcg = np.log2(2) / np.log2(k + 2)
-                ndcg_values.append(ndcg)
-            mean_ndcg = sum(ndcg_values) / len(ndcg_values) if ndcg_values else 0
-            
+            dcg = idcg = 0
+            for index, item in enumerate(rec_items):
+                dcg = dcg + (item[self.r] > 0) / np.log2(index + 2)
+                idcg = idcg + np.log2(2) / np.log2(index + 2)
+            ndcg_T = dcg / idcg
+
             # Logging
             epoch += 1
             e_arr.append(epoch)
-            epi_ndcgs.append(mean_ndcg)
+            epi_ndcgs.append(ndcg_T)
 
             if timesteps % self.config.log_freq == 0:
                 if len(rewards) > 0:
                     print(f'Episode {epoch} | '
-                          f'NDCG@{T} {mean_ndcg} | '
+                          f'NDCG@{T} {ndcg_T} | '
                           f'Avg NDCG@{T} {np.mean(epi_ndcgs):.4f} | '
                           )
                     sys.stdout.flush()
