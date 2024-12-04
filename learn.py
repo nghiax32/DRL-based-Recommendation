@@ -2,7 +2,6 @@ import numpy as np
 import sys
 import torch
 import torch.nn as nn
-import matplotlib.pyplot as plt
 
 from utils.prioritized_replay_buffer import NaivePrioritizedReplayMemory, Transition
 from utils.history_buffer import HistoryBuffer
@@ -140,7 +139,8 @@ class DRRTrainer(object):
         history_buffer = HistoryBuffer(self.config.history_buffer_size)
 
         # Init trackers
-        timesteps = epoch = 0
+        timesteps = 0
+        epoch = 0
         eps_slope = abs(self.config.eps_start - self.config.eps) / self.config.eps_steps
         eps = self.config.eps_start
         actor_losses = []
@@ -604,14 +604,6 @@ class DRRTrainer(object):
 
         print('Online Evaluation Finished')
         print(f'Average Reward {np.mean(rewards):.4f} | ')
-        # x = np.arange(len(actor_losses))
-        # plt.plot(x, actor_losses, label="Test Actor")
-        # plt.plot(x, critic_losses, label="Test Critic")
-        # plt.legend()
-        # plt.xlabel('Timestep (t)')
-        # plt.ylabel('Loss')
-        # plt.title('Actor and Critic Losses (Evaluation)')
-        # plt.minorticks_on()
 
         # Reload model parameters
         self.load_parameters()
@@ -625,22 +617,13 @@ class DRRTrainer(object):
         # Get test data ready
         self.test_data = self.test_data.to(self.device)
 
-        # Init data tracking
-        # data_dict = {
-        #     'Timestep': 0,
-        #     'Training Rewards': 0,
-        #     'Loss': 0
-        # }
-        # fieldnames = [key for key, _ in data_dict.items()]
-        # csv_logger = CSVLogger(fieldnames=fieldnames,
-        #                        filename=self.config.csv_dir)
-
         # Init buffers
         history_buffer = HistoryBuffer(self.config.history_buffer_size)
 
         # Init trackers
         timesteps = epoch = 0
         rewards = []
+        epi_precisions = []
         epi_ndcgs = []
         e_arr = []
 
@@ -739,12 +722,10 @@ class DRRTrainer(object):
 
             # ---------------------------- end of episode ---------------------------- #
 
-            # T_indicies = np.arange(T)
-            # rel_real = user_reviews[T_indicies]
-            # rel_real = rel_real[rel_real[:, self.r] > 0]
             rec_items = torch.stack(ignored_items)
-            # rel_pred = rec_items[rec_items[:, self.r] > 0]
-            # precision_T = len(rel_pred) / len(rec_items)
+            rel_pred = rec_items[rec_items[:, self.r] > 0]
+            precision_T = len(rel_pred) / len(rec_items)
+
             dcg = idcg = 0
             for index, item in enumerate(rec_items):
                 dcg = dcg + (item[self.r] > 0) / np.log2(index + 2)
@@ -754,181 +735,24 @@ class DRRTrainer(object):
             # Logging
             epoch += 1
             e_arr.append(epoch)
+            epi_precisions.append(precision_T)
             epi_ndcgs.append(ndcg_T)
 
             if timesteps % self.config.log_freq == 0:
                 if len(rewards) > 0:
                     print(f'Episode {epoch} | '
+                          f'Precision@{T} {precision_T} | '
+                          f'Avg Precision@{T} {np.mean(epi_precisions):.4f} | '
                           f'NDCG@{T} {ndcg_T} | '
                           f'Avg NDCG@{T} {np.mean(epi_ndcgs):.4f} | '
                           )
                     sys.stdout.flush()
 
         print('Offline Evaluation Finished')
+        print(f'Average Precision@{T}: {np.mean(epi_precisions):.4f} | ')
         print(f'Average NDCG@{T}: {np.mean(epi_ndcgs):.4f} | ')
-        # plt.plot(e_arr, epi_ndcgs, label=f'NDCG@{T}')
-        # # plt.plot(x, critic_losses, label="Test Critic")
-        # plt.legend()
-        # plt.xlabel('Episode (t)')
-        # plt.ylabel('Precesion@T')
-        # plt.title('NDCG@T (Offline Evaluation)')
-        # plt.minorticks_on()
 
         # Reload model parameters
         self.load_parameters()
 
-        return np.mean(epi_ndcgs)
-
-    def offline_pmf_evaluate(self, T):
-        # Load model parameters
-        self.load_parameters()
-
-        # Get test data ready
-        self.test_data = self.test_data.to(self.device)
-
-        # Init buffers
-        history_buffer = HistoryBuffer(self.config.history_buffer_size)
-
-        # Init trackers
-        timesteps = epoch = 0
-        rewards = []
-        epi_ndcgs = []
-        e_arr = []
-
-        # Get users, shuffle, andgo through array
-        user_idxs = np.array(list(self.users.values()))
-        np.random.shuffle(user_idxs)
-
-        candidate_item_idxs = np.arange(self.item_embeddings.shape[0])
-        candidate_item_idxs = torch.from_numpy(candidate_item_idxs).to(self.device).long()
-
-        # Start episodes
-        for idx, e in enumerate(user_idxs):
-            # ---------------------------- start of episode ---------------------------- #
-
-            if len(e_arr) > self.config.max_epochs_offline:
-                break
-
-            # Extract user reviews and positive user reviews from test
-            user_reviews = self.test_data[self.test_data[:, self.u] == e]
-            pos_user_reviews = user_reviews[user_reviews[:, self.r] > 0]
-
-            # Move on to next user if not enough positive or regular reviews
-            if user_reviews.shape[0] < T or pos_user_reviews.shape[0] < self.config.history_buffer_size:
-                continue
-
-            # Sort user reviews by timestamp
-            user_reviews = user_reviews[user_reviews[:, self.ti].sort()[1]]
-            pos_user_reviews = pos_user_reviews[pos_user_reviews[:, self.ti].sort()[1]]
-
-            # Copy item embeddings to candidate item embeddings set
-            candidate_items = self.item_embeddings.detach().clone().to(self.device)
-            user_candidate_items = self.item_embeddings[user_reviews[:, self.i].cpu()].detach().clone().to(self.device)
-
-            # Extract user embedding tensor
-            user_emb = self.user_embeddings[e]
-            user_emb_exp = torch.tensor(e).expand(candidate_item_idxs.shape).to(self.device).long()
-
-            # Fill history buffer with positive user item embeddings and
-            # Remove item embeddings from candidate item set
-            ignored_items = []
-            for i in range(self.config.history_buffer_size):
-                emb = candidate_items[pos_user_reviews[i, self.i]]
-                history_buffer.push(emb.detach().clone())
-
-            # Starting item index
-            t = 0
-
-            state = None
-            action = None
-            reward = None
-            next_state = None
-            while t < T:
-                # ---------------------------- start of timestep ---------------------------- #
-
-                # observe current state
-                # choose action according to actor network or exploration
-                # with torch.no_grad():
-                #     state = self.state_rep_net(user_emb, torch.stack(history_buffer.to_list()))
-                #     if np.random.uniform(0, 1) < self.config.eps_eval:
-                #         action = torch.from_numpy(0.1 * np.random.rand(self.action_shape)).float().to(self.device)
-                #     else:
-                #         action = self.actor_net(state.detach())
-
-                # Calculate ranking scores across items, discard ignored items
-                ranking_scores = self.reward_function(user_emb_exp, candidate_item_idxs)
-                rec_items = torch.stack(ignored_items) if len(ignored_items) > 0 else []
-                ranking_scores[rec_items[:, self.i] if len(ignored_items) > 0 else []] = -float("inf")
-
-                # Get recommended item
-                rec_item_idx = torch.argmax(ranking_scores[user_reviews[:, self.i]])
-                rec_item_emb = user_candidate_items[rec_item_idx]
-
-                # Get item reward
-                reward = user_reviews[rec_item_idx, self.r]
-
-                # Track episode rewards
-                rewards.append(reward.item())
-
-                # Add item to history buffer if positive review, remove from candidate set
-                # Set next state to new or old
-                if reward > 0:
-                    # Update history buffer with new item
-                    history_buffer.push(rec_item_emb.detach().clone())
-                    # Observe next state
-                    # with torch.no_grad():
-                    #     next_state = self.state_rep_net(user_emb, torch.stack(history_buffer.to_list()))
-                # else:
-                    # Keep history buffer the same, next state is current state
-                    # next_state = state.detach()
-
-                # Remove new item from future recommendations
-                ignored_items.append(user_reviews[rec_item_idx])
-
-                # Housekeeping
-                t += 1
-                timesteps += 1
-
-                # ---------------------------- end of timestep ---------------------------- #
-
-            # ---------------------------- end of episode ---------------------------- #
-
-            # T_indicies = np.arange(T)
-            # rel_real = user_reviews[T_indicies]
-            # rel_real = rel_real[rel_real[:, self.r] > 0]
-            rec_items = torch.stack(ignored_items)
-            # rel_pred = rec_items[rec_items[:, self.r] > 0]
-            # precision_T = len(rel_pred) / len(rec_items)
-            dcg = idcg = 0
-            for index, item in enumerate(rec_items):
-                dcg = dcg + (item[self.r] > 0) / np.log2(index + 2)
-                idcg = idcg + np.log2(2) / np.log2(index + 2)
-            ndcg_T = dcg / idcg
-
-            # Logging
-            epoch += 1
-            e_arr.append(epoch)
-            epi_ndcgs.append(ndcg_T)
-
-            if timesteps % self.config.log_freq == 0:
-                if len(rewards) > 0:
-                    print(f'Episode {epoch} | '
-                          f'NDCG@{T} {ndcg_T} | '
-                          f'Avg NDCG@{T} {np.mean(epi_ndcgs):.4f} | '
-                          )
-                    sys.stdout.flush()
-
-        print('Offline Evaluation Finished')
-        print(f'Average NDCG@{T}: {np.mean(epi_ndcgs):.4f} | ')
-        # plt.plot(e_arr, epi_ndcgs, label=f'NDCG@{T}')
-        # # plt.plot(x, critic_losses, label="Test Critic")
-        # plt.legend()
-        # plt.xlabel('Episode (t)')
-        # plt.ylabel('Precesion@T')
-        # plt.title('NDCG@T (Offline Evaluation)')
-        # plt.minorticks_on()
-
-        # Reload model parameters
-        self.load_parameters()
-
-        return np.mean(epi_ndcgs)
+        return np.mean(epi_precisions), np.mean(epi_ndcgs)
