@@ -729,8 +729,9 @@ class DRRTrainer(object):
             dcg = idcg = 0
             for index, item in enumerate(rec_items):
                 dcg = dcg + (item[self.r] > 0) / np.log2(index + 2)
-                idcg = idcg + np.log2(2) / np.log2(index + 2)
-            ndcg_T = dcg / idcg
+                if index < len(rel_pred):
+                    idcg = idcg + np.log2(2) / np.log2(index + 2)
+            ndcg_T = dcg / idcg if idcg != 0 else 0
 
             # Logging
             epoch += 1
